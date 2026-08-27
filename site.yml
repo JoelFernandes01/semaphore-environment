@@ -1,9 +1,20 @@
 ---
-- name: Playbook de Exemplo NGINX
-  hosts: all
-  become: true
+# ==============================================================================
+# PLAY 1: Testar Conectividade com todas as VMs Linux (SSH)
+# ==============================================================================
+- name: Testar Conexao com as Maquinas Linux
+  hosts: linux
+  gather_facts: false # Ignora coleta de dados para focar puramente no teste de rede
   tasks:
-    - name: Garantir que o NGINX esteja instalado
-      ansible.builtin.package:
-        name: nginx
-        state: present 
+    - name: Executar Ping SSH (Linux)
+      ansible.builtin.ping:
+
+# ==============================================================================
+# PLAY 2: Testar Conectividade com o Windows 10 (WinRM)
+# ==============================================================================
+- name: Testar Conexao com a Maquina Windows
+  hosts: windows
+  gather_facts: false # Ignora coleta de dados para focar puramente no teste de rede
+  tasks:
+    - name: Executar Ping WinRM (Windows)
+      ansible.windows.win_ping:
