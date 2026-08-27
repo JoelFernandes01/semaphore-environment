@@ -5,7 +5,7 @@
 
   vars:
     zabbix_server: "monitoramento.nverse.local"
-    # URL estável e existente do Zabbix Agent 2 7.0 LTS para Windows (Evita erro 404 da v7.0.0)
+    # URL estável e ativa do Zabbix Agent 2 7.0 LTS para Windows
     zabbix_win_msi_url: "https://cdn.zabbix.com/zabbix/binaries/stable/7.0/7.0.21/zabbix_agent2-7.0.21-windows-amd64-openssl.msi"
 
   tasks:
@@ -23,9 +23,20 @@
               https://repo.zabbix.com/zabbix/7.0/ubuntu/pool/main/z/zabbix-release/zabbix-release_7.0-1+ubuntu24.04_all.deb
               {% endif %}
 
-        - name: Instalar repositório do Zabbix diretamente via URL
+        # RESOLUÇÃO DO ERRO DPKG-DEB READ ARCHIVE NO UBUNTU:
+        # Quando passamos 'deb' com URL direto para o módulo 'apt', o Ansible faz o download dentro
+        # da pasta unprivileged home do usuário (.ansible/tmp). Devido ao 'become: true', o 'root'
+        # tenta ler o arquivo mas é bloqueado por restrições de montagem, AppArmor ou permissões de diretório.
+        # Baixando explicitamente para '/tmp' resolvemos isso definitivamente de forma limpa e compatível.
+        - name: Baixar pacote de repositório oficial do Zabbix no Linux
+          ansible.builtin.get_url:
+            url: "{{ zabbix_repo_url }}"
+            dest: "/tmp/zabbix-release.deb"
+            mode: '0644'
+
+        - name: Instalar repositório do Zabbix localmente
           ansible.builtin.apt:
-            deb: "{{ zabbix_repo_url }}"
+            deb: "/tmp/zabbix-release.deb"
             state: present
 
         - name: Atualizar cache de pacotes (apt update)
@@ -38,8 +49,6 @@
             state: present
 
         # CURA DO ERRO "Destination /etc/zabbix/zabbix_agent2.conf does not exist !"
-        # Se um conffile do DPKG/APT é deletado manualmente, o apt-get install comum NÃO o recria.
-        # Esta tarefa detecta a ausência física do arquivo e força a reinstalação corrigindo isso.
         - name: Verificar se o arquivo de configuração do Zabbix Agent 2 existe
           ansible.builtin.stat:
             path: /etc/zabbix/zabbix_agent2.conf
@@ -72,18 +81,16 @@
         - name: Baixar o instalador oficial MSI do Zabbix Agent 2
           ansible.windows.win_get_url:
             url: "{{ zabbix_win_msi_url }}"
-            dest: 'C:\\Users\\Public\\Downloads\\zabbix_agent2.msi'
+            dest: 'C:\Users\Public\Downloads\zabbix_agent2.msi'
 
+        # RESOLUÇÃO DO ERRO DE SERVIÇO WINDOWS:
+        # 1. Removido o argumento incorreto 'ENAZENT=1' (causava a falha silenciosa do instalador MSI).
+        # 2. Convertida a lista de argumentos para linha única para evitar quebras de linhas invisíveis (newlines).
         - name: Instalar Zabbix Agent 2 via MSI parametrizado
           ansible.windows.win_package:
-            path: 'C:\\Users\\Public\\Downloads\\zabbix_agent2.msi'
+            path: 'C:\Users\Public\Downloads\zabbix_agent2.msi'
             state: present
-            arguments: >
-              /qn
-              SERVER={{ zabbix_server }}
-              SERVERACTIVE={{ zabbix_server }}
-              HOSTNAME={{ ansible_facts["hostname"] }}
-              ENAZENT=1
+            arguments: '/qn SERVER={{ zabbix_server }} SERVERACTIVE={{ zabbix_server }} HOSTNAME={{ ansible_facts["hostname"] }} ENABLEPATH=1'
 
         - name: Garantir que o serviço do Zabbix Agent 2 esteja rodando e em Auto-start
           ansible.windows.win_service:
