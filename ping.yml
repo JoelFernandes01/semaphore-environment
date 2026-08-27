@@ -1,0 +1,14 @@
+---
+- name: Testar Conexao com as Maquinas Linux
+  hosts: linux
+  gather_facts: false
+  tasks:
+    - name: Executar Ping SSH (Linux)
+      ansible.builtin.ping:
+
+- name: Testar Conexao com as Maquinas Windows
+  hosts: windows
+  gather_facts: false
+  tasks:
+    - name: Executar Ping WinRM (Windows)
+      ansible.windows.win_ping:
