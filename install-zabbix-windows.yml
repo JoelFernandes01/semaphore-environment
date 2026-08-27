@@ -1,0 +1,27 @@
+---
+- name: Instalação do Zabbix Agent 2 no Windows
+  hosts: windows
+  gather_facts: true
+
+  vars:
+    zabbix_server: "monitoramento.nverse.local"
+    # Link estável e ativo (Evita o erro 404 do CDN oficial)
+    zabbix_win_msi_url: "https://cdn.zabbix.com/zabbix/binaries/stable/7.0/7.0.21/zabbix_agent2-7.0.21-windows-amd64-openssl.msi"
+
+  tasks:
+    - name: Baixar o instalador oficial MSI do Zabbix Agent 2
+      ansible.windows.win_get_url:
+        url: "{{ zabbix_win_msi_url }}"
+        dest: 'C:\Users\Public\Downloads\zabbix_agent2.msi'
+
+    - name: Instalar Zabbix Agent 2 via MSI silencioso
+      ansible.windows.win_package:
+        path: 'C:\Users\Public\Downloads\zabbix_agent2.msi'
+        state: present
+        arguments: /qn SERVER={{ zabbix_server }} SERVERACTIVE={{ zabbix_server }} HOSTNAME={{ ansible_facts["hostname"] }} ENABLEPATH=1
+
+    - name: Garantir que o serviço do Zabbix Agent 2 esteja rodando e em Auto-start
+      ansible.windows.win_service:
+        name: "Zabbix Agent 2"
+        start_mode: auto
+        state: started
