@@ -15,15 +15,9 @@
     # ==========================================================================
     - name: Configurar Zabbix Agent 2 no Linux
       block:
-        - name: Baixar o pacote de repositório oficial do Zabbix 7.0
-          ansible.builtin.get_url:
-            url: "{{ zabbix_repo_ubuntu }}"
-            dest: "/tmp/zabbix-release.deb"
-            mode: '0644'
-
-        - name: Instalar repositório do Zabbix
+        - name: Instalar repositório do Zabbix diretamente via URL
           ansible.builtin.apt:
-            deb: "/tmp/zabbix-release.deb"
+            deb: "{{ zabbix_repo_ubuntu }}"
             state: present
 
         - name: Atualizar cache de pacotes (apt update)
@@ -44,35 +38,30 @@
           loop:
             - { regexp: '^Server=', line: 'Server={{ zabbix_server }}' }
             - { regexp: '^ServerActive=', line: 'ServerActive={{ zabbix_server }}' }
-            - { regexp: '^Hostname=', line: 'Hostname={{ ansible_hostname }}' }
+            - { regexp: '^Hostname=', line: 'Hostname={{ ansible_facts["hostname"] }}' }
           notify: Reiniciar Zabbix Agent Linux
 
-      when: ansible_os_family == "Debian"
+      when: ansible_facts['os_family'] == "Debian"
 
     # ==========================================================================
-    # Bloco de Instalação para Windows (Windows 10 / Windows Server 2026)
+    # Bloco de Instalação para Windows (WinRM)
     # ==========================================================================
     - name: Configurar Zabbix Agent 2 no Windows
       block:
-        - name: Criar pasta temporária para o instalador no Windows
-          ansible.windows.win_file:
-            path: 'C:\Temp'
-            state: directory
-
         - name: Baixar o instalador oficial MSI do Zabbix Agent 2
           ansible.windows.win_get_url:
             url: "{{ zabbix_win_msi_url }}"
-            dest: 'C:\Temp\zabbix_agent2.msi'
+            dest: 'C:\Users\Public\Downloads\zabbix_agent2.msi'
 
-        - name: Instalar Zabbix Agent 2 via MSI parametrizado silencioso
+        - name: Instalar Zabbix Agent 2 via MSI parametrizado
           ansible.windows.win_package:
-            path: 'C:\Temp\zabbix_agent2.msi'
+            path: 'C:\Users\Public\Downloads\zabbix_agent2.msi'
             state: present
             arguments: >
               /qn
               SERVER={{ zabbix_server }}
               SERVERACTIVE={{ zabbix_server }}
-              HOSTNAME={{ ansible_hostname }}
+              HOSTNAME={{ ansible_facts["hostname"] }}
               ENAZENT=1
 
         - name: Garantir que o serviço do Zabbix Agent 2 esteja rodando e em Auto-start
@@ -81,7 +70,7 @@
             start_mode: auto
             state: started
 
-      when: ansible_os_family == "Windows"
+      when: ansible_facts['os_family'] == "Windows"
 
   # ============================================================================
   # Handlers de Reinicialização
