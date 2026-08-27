@@ -5,9 +5,8 @@
 
   vars:
     zabbix_server: "monitoramento.nverse.local"
-    # URLs dos instaladores oficiais do Zabbix 7.0 LTS
-    zabbix_repo_ubuntu: "https://repo.zabbix.com/zabbix/7.0/ubuntu/pool/main/z/zabbix-release/zabbix-release_7.0-1+ubuntu24.04_all.deb"
-    zabbix_win_msi_url: "https://cdn.zabbix.com/zabbix/binaries/stable/7.0/7.0.0/zabbix_agent2-7.0.0-windows-amd64-openssl.msi"
+    # URL estável e existente do Zabbix Agent 2 7.0 LTS para Windows (Evita erro 404 da v7.0.0)
+    zabbix_win_msi_url: "https://cdn.zabbix.com/zabbix/binaries/stable/7.0/7.0.21/zabbix_agent2-7.0.21-windows-amd64-openssl.msi"
 
   tasks:
     # ==========================================================================
@@ -15,9 +14,18 @@
     # ==========================================================================
     - name: Configurar Zabbix Agent 2 no Linux
       block:
+        - name: Definir pacote de repositório com base na versão do Ubuntu
+          ansible.builtin.set_fact:
+            zabbix_repo_url: >-
+              {% if ansible_facts['distribution_version'] == '26.04' %}
+              https://repo.zabbix.com/zabbix/7.0/ubuntu/pool/main/z/zabbix-release/zabbix-release_7.0-5+ubuntu26.04_all.deb
+              {% else %}
+              https://repo.zabbix.com/zabbix/7.0/ubuntu/pool/main/z/zabbix-release/zabbix-release_7.0-1+ubuntu24.04_all.deb
+              {% endif %}
+
         - name: Instalar repositório do Zabbix diretamente via URL
           ansible.builtin.apt:
-            deb: "{{ zabbix_repo_ubuntu }}"
+            deb: "{{ zabbix_repo_url }}"
             state: present
 
         - name: Atualizar cache de pacotes (apt update)
@@ -28,6 +36,19 @@
           ansible.builtin.apt:
             name: zabbix-agent2
             state: present
+
+        # CURA DO ERRO "Destination /etc/zabbix/zabbix_agent2.conf does not exist !"
+        # Se um conffile do DPKG/APT é deletado manualmente, o apt-get install comum NÃO o recria.
+        # Esta tarefa detecta a ausência física do arquivo e força a reinstalação corrigindo isso.
+        - name: Verificar se o arquivo de configuração do Zabbix Agent 2 existe
+          ansible.builtin.stat:
+            path: /etc/zabbix/zabbix_agent2.conf
+          register: agent2_conf
+
+        - name: Forçar reinstalação recriando conffiles ausentes se necessário
+          ansible.builtin.shell: apt-get install -o Dpkg::Options::="--force-confmiss" --reinstall -y zabbix-agent2
+          when: not agent2_conf.stat.exists
+          changed_when: true
 
         - name: Configurar o arquivo zabbix_agent2.conf
           ansible.builtin.lineinfile:
@@ -51,11 +72,11 @@
         - name: Baixar o instalador oficial MSI do Zabbix Agent 2
           ansible.windows.win_get_url:
             url: "{{ zabbix_win_msi_url }}"
-            dest: 'C:\Users\Public\Downloads\zabbix_agent2.msi'
+            dest: 'C:\\Users\\Public\\Downloads\\zabbix_agent2.msi'
 
         - name: Instalar Zabbix Agent 2 via MSI parametrizado
           ansible.windows.win_package:
-            path: 'C:\Users\Public\Downloads\zabbix_agent2.msi'
+            path: 'C:\\Users\\Public\\Downloads\\zabbix_agent2.msi'
             state: present
             arguments: >
               /qn
