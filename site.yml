@@ -1,9 +1,9 @@
 ---
-- name: Playbook de Exemplo Apache
+- name: Playbook de Exemplo NGINX
   hosts: all
   become: true
   tasks:
-    - name: Garantir que o Apache esteja instalado
-      ansible.builtin.package:   # <--- Dois pontos obrigatórios aqui!
-        name: apache2
+    - name: Garantir que o NGINX esteja instalado
+      ansible.builtin.package:
+        name: nginx
         state: present 
