@@ -1,0 +1,94 @@
+---
+- name: Instalação Híbrida do Zabbix Agent 2 (7.0 LTS)
+  hosts: all
+  gather_facts: true
+
+  vars:
+    zabbix_server: "monitoramento.nverse.local"
+    # URLs dos instaladores oficiais do Zabbix 7.0 LTS
+    zabbix_repo_ubuntu: "https://repo.zabbix.com/zabbix/7.0/ubuntu/pool/main/z/zabbix-release/zabbix-release_7.0-1+ubuntu24.04_all.deb"
+    zabbix_win_msi_url: "https://cdn.zabbix.com/zabbix/binaries/stable/7.0/7.0.0/zabbix_agent2-7.0.0-windows-amd64-openssl.msi"
+
+  tasks:
+    # ==========================================================================
+    # Bloco de Instalação para Linux (Ubuntu / Debian)
+    # ==========================================================================
+    - name: Configurar Zabbix Agent 2 no Linux
+      block:
+        - name: Baixar o pacote de repositório oficial do Zabbix 7.0
+          ansible.builtin.get_url:
+            url: "{{ zabbix_repo_ubuntu }}"
+            dest: "/tmp/zabbix-release.deb"
+            mode: '0644'
+
+        - name: Instalar repositório do Zabbix
+          ansible.builtin.apt:
+            deb: "/tmp/zabbix-release.deb"
+            state: present
+
+        - name: Atualizar cache de pacotes (apt update)
+          ansible.builtin.apt:
+            update_cache: true
+
+        - name: Instalar o pacote zabbix-agent2
+          ansible.builtin.apt:
+            name: zabbix-agent2
+            state: present
+
+        - name: Configurar o arquivo zabbix_agent2.conf
+          ansible.builtin.lineinfile:
+            path: /etc/zabbix/zabbix_agent2.conf
+            regexp: "{{ item.regexp }}"
+            line: "{{ item.line }}"
+            state: present
+          loop:
+            - { regexp: '^Server=', line: 'Server={{ zabbix_server }}' }
+            - { regexp: '^ServerActive=', line: 'ServerActive={{ zabbix_server }}' }
+            - { regexp: '^Hostname=', line: 'Hostname={{ ansible_hostname }}' }
+          notify: Reiniciar Zabbix Agent Linux
+
+      when: ansible_os_family == "Debian"
+
+    # ==========================================================================
+    # Bloco de Instalação para Windows (Windows 10 / Windows Server 2026)
+    # ==========================================================================
+    - name: Configurar Zabbix Agent 2 no Windows
+      block:
+        - name: Criar pasta temporária para o instalador no Windows
+          ansible.windows.win_file:
+            path: 'C:\Temp'
+            state: directory
+
+        - name: Baixar o instalador oficial MSI do Zabbix Agent 2
+          ansible.windows.win_get_url:
+            url: "{{ zabbix_win_msi_url }}"
+            dest: 'C:\Temp\zabbix_agent2.msi'
+
+        - name: Instalar Zabbix Agent 2 via MSI parametrizado silencioso
+          ansible.windows.win_package:
+            path: 'C:\Temp\zabbix_agent2.msi'
+            state: present
+            arguments: >
+              /qn
+              SERVER={{ zabbix_server }}
+              SERVERACTIVE={{ zabbix_server }}
+              HOSTNAME={{ ansible_hostname }}
+              ENAZENT=1
+
+        - name: Garantir que o serviço do Zabbix Agent 2 esteja rodando e em Auto-start
+          ansible.windows.win_service:
+            name: "Zabbix Agent 2"
+            start_mode: auto
+            state: started
+
+      when: ansible_os_family == "Windows"
+
+  # ============================================================================
+  # Handlers de Reinicialização
+  # ============================================================================
+  handlers:
+    - name: Reiniciar Zabbix Agent Linux
+      ansible.builtin.service:
+        name: zabbix-agent2
+        state: restarted
+        enabled: true
