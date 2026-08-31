@@ -1,1 +1,123 @@
+---
+- name: Instalar e Configurar o PostgreSQL 17 no IP 10.0.39.41
+  hosts: db_postgres_novo
+  gather_facts: true
+  tasks:
+    - name: Instalar dependências iniciais do APT (Incluindo ca-certificates)
+      ansible.builtin.apt:
+        name:
+          - gnupg2
+          - wget
+          - ca-certificates
+          - apt-transport-https
+        state: present
+        update_cache: true
 
+    - name: Garantir que o diretório de keyrings do sistema existe
+      ansible.builtin.file:
+        path: /usr/share/keyrings
+        state: directory
+        mode: '0755'
+
+    - name: Baixar a chave GPG oficial do PostgreSQL
+      ansible.builtin.get_url:
+        url: https://www.postgresql.org/media/keys/ACCC4CF8.asc
+        dest: /tmp/postgresql.asc
+        mode: '0644'
+
+    # SOLUÇÃO COMPATIBILIDADE GPG: De-armor da chave para o formato binário exigido pelo APT moderno
+    - name: Desarmar chave GPG para formato binário de alta compatibilidade (.gpg)
+      ansible.builtin.shell: |
+        gpg --dearmor < /tmp/postgresql.asc > /usr/share/keyrings/postgresql.gpg
+      args:
+        creates: /usr/share/keyrings/postgresql.gpg
+
+    # CURA DEFINITIVA: Removemos também arquivos .sources que conflitam com as novas diretrizes do APT moderno
+    - name: Garantir a divisão limpa e remoção completa de quaisquer repositórios PostgreSQL antigos ou conflitantes (.list e .sources)
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /etc/apt/sources.list.d/pgdg.list
+        - /etc/apt/sources.list.d/postgresql.list
+        - /etc/apt/sources.list.d/pgdg.sources
+        - /etc/apt/sources.list.d/postgresql.sources
+
+    - name: Obter o codinome da distribuição (codename) do S.O. de forma nativa e ultra-confiável
+      ansible.builtin.shell: |
+        . /etc/os-release
+        echo "$VERSION_CODENAME"
+      register: os_codename_cmd
+      changed_when: false
+
+    - name: Definir o codinome do sistema operacional como fato do Ansible
+      ansible.builtin.set_fact:
+        target_os_codename: "{{ os_codename_cmd.stdout | trim }}"
+
+    - name: Configurar o arquivo de repositório oficial pgdg.list diretamente (Usando a chave .gpg desarmada)
+      ansible.builtin.copy:
+        dest: /etc/apt/sources.list.d/pgdg.list
+        content: "deb [signed-by=/usr/share/keyrings/postgresql.gpg] https://apt.postgresql.org/pub/repos/apt {{ target_os_codename }}-pgdg main"
+        mode: '0644'
+
+    # CURA DO CACHE: Limpar índices corrompidos/antigos e recriar do zero garante que o APT enxergue o pg-17
+    - name: Limpeza completa do cache do APT e remoção de listas antigas
+      ansible.builtin.shell: |
+        apt-get clean
+        rm -rf /var/lib/apt/lists/*
+      changed_when: true
+
+    - name: Atualizar o cache do APT de forma limpa e forçando a releitura de todas as fontes
+      ansible.builtin.shell: |
+        apt-get update -y --allow-releaseinfo-change
+      changed_when: true
+
+    - name: Instalar o servidor PostgreSQL 17 e bibliotecas de conexão Python
+      ansible.builtin.apt:
+        name:
+          - postgresql-17
+          - python3-psycopg2
+        state: present
+
+    - name: Configurar o PostgreSQL para escutar conexões de rede externas
+      ansible.builtin.lineinfile:
+        path: /etc/postgresql/17/main/postgresql.conf
+        regexp: '^#?listen_addresses\s*='
+        line: "listen_addresses = '*'"
+        state: present
+      notify: Restart PostgreSQL
+
+    - name: Configurar o pg_hba.conf para aceitar conexões vindas da rede interna do Swarm
+      ansible.builtin.lineinfile:
+        path: /etc/postgresql/17/main/pg_hba.conf
+        line: "host    all             all             10.0.39.0/24            md5"
+        state: present
+      notify: Restart PostgreSQL
+
+    - name: Garantir que o serviço do PostgreSQL está ativo no sistema
+      ansible.builtin.systemd_service:
+        name: postgresql
+        state: started
+        enabled: true
+
+    - name: Forçar o reinício do banco de dados (flush de handlers)
+      ansible.builtin.meta: flush_handlers
+
+    - name: Criar o usuário de acesso administrativo do PatchMon
+      community.postgresql.postgresql_user:
+        name: patchmon
+        password: "Nov@Senh@"
+        role_attr_flags: SUPERUSER
+      become_user: postgres
+
+    - name: Criar a base de dados patchmondb associada ao usuário
+      community.postgresql.postgresql_db:
+        name: patchmondb
+        owner: patchmon
+      become_user: postgres
+
+  handlers:
+    - name: Restart PostgreSQL
+      ansible.builtin.service:
+        name: postgresql
+        state: restarted
