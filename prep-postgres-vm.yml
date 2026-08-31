@@ -45,6 +45,12 @@
         state: present
         fs_type: ext4
 
+    - name: Sincronizar tabela de partições com o kernel (Evita erro de Device /dev/vdb1 not found)
+      ansible.builtin.shell: |
+        partprobe /dev/vdb || true
+        udevadm settle
+      changed_when: false
+
     - name: Formatar a partição /dev/vdb1 com sistema de arquivos ext4
       community.general.filesystem:
         fstype: ext4
