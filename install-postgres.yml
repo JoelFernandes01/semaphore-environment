@@ -11,14 +11,22 @@
         state: present
         update_cache: true
 
-    - name: Importar a chave oficial de criptografia do PostgreSQL
-      ansible.builtin.apt_key:
+    # MÉTODOS MODERNOS PARA SUBSTITUIR O APT-KEY DEPRECIADO NO UBUNTU 26.04
+    - name: Garantir que o diretório keyrings existe
+      ansible.builtin.file:
+        path: /etc/apt/keyrings
+        state: directory
+        mode: '0755'
+
+    - name: Importar a chave oficial de criptografia do PostgreSQL (Moderno)
+      ansible.builtin.get_url:
         url: https://www.postgresql.org/media/keys/ACCC4CF8.asc
-        state: present
+        dest: /etc/apt/keyrings/postgresql.asc
+        mode: '0644'
 
     - name: Adicionar o repositório oficial do PostgreSQL ao sistema
       ansible.builtin.apt_repository:
-        repo: "deb http://apt.postgresql.org/pub/repos/apt {{ ansible_facts['distribution_release'] }}-pgdg main"
+        repo: "deb [signed-by=/etc/apt/keyrings/postgresql.asc] http://apt.postgresql.org/pub/repos/apt {{ ansible_facts['distribution_release'] }}-pgdg main"
         state: present
 
     - name: Instalar o servidor PostgreSQL 17 e a biblioteca python3-psycopg2
@@ -32,7 +40,7 @@
     - name: Configurar o PostgreSQL para escutar conexões de rede externas
       ansible.builtin.lineinfile:
         path: /etc/postgresql/17/main/postgresql.conf
-        regexp: '^#?listen_addresses\s*='  # Corrigido para aspas simples para evitar erro de escape do YAML
+        regexp: '^#?listen_addresses\s*='
         line: "listen_addresses = '*'"
         state: present
       notify: Restart PostgreSQL
