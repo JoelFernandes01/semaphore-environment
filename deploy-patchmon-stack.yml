@@ -1,0 +1,110 @@
+---
+# ==============================================================================
+# ETAPA 1: Criação dos Diretórios de Persistência no Servidor NFS
+# ==============================================================================
+- name: Criar Pastas Físicas para os Volumes NFS no Storage
+  hosts: nfs_storage
+  gather_facts: false
+  tasks:
+    - name: Garantir a criação das pastas físicas no storage NFS
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        owner: nobody
+        group: nogroup
+        mode: '0777'
+      loop:
+        - /srv/nfs/swarm/patchmon_server
+        - /srv/nfs/swarm/patchmon_redis
+
+# ==============================================================================
+# ETAPA 2: Distribuição do Manifesto e Inicialização da Stack no Swarm Manager
+# ==============================================================================
+- name: Realizar Deploy da Stack do PatchMon no Docker Swarm
+  hosts: swarm_manager
+  gather_facts: false
+  tasks:
+    - name: Garantir a criação da pasta de stacks no Swarm Manager
+      ansible.builtin.file:
+        path: ~/stacks
+        state: directory
+        mode: '0755'
+
+    - name: Gerar o manifesto de implantação da stack no Swarm Manager
+      ansible.builtin.copy:
+        dest: ~/stacks/patchmon-stack.yml
+        content: |
+          version: '3.8'
+          services:
+            server:
+              image: ghcr.io/patchmon/patchmon-server:latest
+              environment:
+                # Conecta diretamente à nova VM e porta do PostgreSQL 17
+                - DATABASE_URL=postgres://patchmon:Nov%40Senh%40@10.0.39.41:5432/patchmondb?sslmode=disable
+                - REDIS_URL=redis://redis:6379/0
+                - GUACD_HOST=guacd
+                - GUACD_PORT=4822
+                - TZ=America/Sao_Paulo
+              volumes:
+                - patchmon_server_data:/app/data
+              networks:
+                - traefik_public
+              deploy:
+                mode: replicated
+                replicas: 1
+                placement:
+                  constraints:
+                    - node.role == manager
+                labels:
+                  - "traefik.enable=true"
+                  - "traefik.http.routers.patchmon.rule=Host(`patchmon.nverse.local`)"
+                  - "traefik.http.routers.patchmon.entrypoints=web"
+                  - "traefik.http.services.patchmon.loadbalancer.server.port=3000"
+
+            redis:
+              image: redis:7-alpine
+              command: redis-server --appendonly yes
+              volumes:
+                - patchmon_redis_data:/data
+              networks:
+                - traefik_public
+              deploy:
+                mode: replicated
+                replicas: 1
+                placement:
+                  constraints:
+                    - node.role == manager
+
+            guacd:
+              image: apache/guacd:latest
+              networks:
+                - traefik_public
+              deploy:
+                mode: replicated
+                replicas: 1
+                placement:
+                  constraints:
+                    - node.role == manager
+
+          networks:
+            traefik_public:
+              external: true
+
+          volumes:
+            patchmon_server_data:
+              driver: local
+              driver_opts:
+                type: nfs
+                o: "addr=10.0.39.40,rw,noatime,rsize=8192,wsize=8192,tcp,timeo=14,nfsvers=4"
+                device: ":/srv/nfs/swarm/patchmon_server"
+            patchmon_redis_data:
+              driver: local
+              driver_opts:
+                type: nfs
+                o: "addr=10.0.39.40,rw,noatime,rsize=8192,wsize=8192,tcp,timeo=14,nfsvers=4"
+                device: ":/srv/nfs/swarm/patchmon_redis"
+        mode: '0644'
+
+    - name: Executar o deploy da Stack PatchMon no cluster Swarm
+      ansible.builtin.shell: docker stack deploy -c ~/stacks/patchmon-stack.yml patchmon
+      changed_when: true
