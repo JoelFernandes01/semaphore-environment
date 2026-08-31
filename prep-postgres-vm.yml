@@ -32,12 +32,12 @@
                     search: [nverse.local]
         mode: '0600'
 
-    - name: Deletar o arquivo conflitante 50-cloud-init.yaml
+    - name: Deletar o arquivo legado conflitante do cloud-init
       ansible.builtin.file:
         path: /etc/netplan/50-cloud-init.yaml
         state: absent
 
-    - name: Criar a tabela de partição GPT no disco virtual de 100 GB (/dev/vdb)
+    - name: Criar a tabela de partição GPT no disco virtual de 100 GB VirtIO (/dev/vdb)
       community.general.parted:
         device: /dev/vdb
         number: 1
