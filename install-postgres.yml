@@ -1,1 +1,96 @@
+---
+- name: Instalar e Configurar o PostgreSQL 17 no IP 10.0.39.41
+  hosts: db_postgres_novo
+  gather_facts: true
+  tasks:
+    - name: Instalar dependências iniciais do APT (Incluindo ca-certificates)
+      ansible.builtin.apt:
+        name:
+          - gnupg2
+          - wget
+          - ca-certificates
+          - apt-transport-https
+        state: present
+        update_cache: true
 
+    - name: Garantir que o diretório keyrings existe
+      ansible.builtin.file:
+        path: /etc/apt/keyrings
+        state: directory
+        mode: '0755'
+
+    - name: Importar a chave oficial de criptografia do PostgreSQL
+      ansible.builtin.get_url:
+        url: https://www.postgresql.org/media/keys/ACCC4CF8.asc
+        dest: /etc/apt/keyrings/postgresql.asc
+        mode: '0644'
+
+    # CURA DEFINITIVA DO ERRO: Escrever o arquivo de repositório diretamente evita
+    # falhas silenciosas do módulo apt_repository em sistemas sem apt-key.
+    - name: Remover arquivos antigos de repositórios do PostgreSQL para evitar conflitos
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /etc/apt/sources.list.d/pgdg.list
+        - /etc/apt/sources.list.d/postgresql.list
+
+    - name: Configurar o arquivo de repositório oficial pgdg.list diretamente
+      ansible.builtin.copy:
+        dest: /etc/apt/sources.list.d/pgdg.list
+        content: "deb [signed-by=/etc/apt/keyrings/postgresql.asc] https://apt.postgresql.org/pub/repos/apt resolute-pgdg main"
+        mode: '0644'
+
+    - name: Atualizar o cache de pacotes (apt update)
+      ansible.builtin.apt:
+        update_cache: true
+
+    - name: Instalar o servidor PostgreSQL 17 e bibliotecas de conexão Python
+      ansible.builtin.apt:
+        name:
+          - postgresql-17
+          - python3-psycopg2
+        state: present
+
+    - name: Configurar o PostgreSQL para escutar conexões de rede externas
+      ansible.builtin.lineinfile:
+        path: /etc/postgresql/17/main/postgresql.conf
+        regexp: '^#?listen_addresses\s*='
+        line: "listen_addresses = '*'"
+        state: present
+      notify: Restart PostgreSQL
+
+    - name: Configurar o pg_hba.conf para aceitar conexões vindas da rede interna do Swarm
+      ansible.builtin.lineinfile:
+        path: /etc/postgresql/17/main/pg_hba.conf
+        line: "host    all             all             10.0.39.0/24            md5"
+        state: present
+      notify: Restart PostgreSQL
+
+    - name: Garantir que o serviço do PostgreSQL está ativo no sistema
+      ansible.builtin.systemd_service:
+        name: postgresql
+        state: started
+        enabled: true
+
+    - name: Forçar o reinício do banco de dados (flush de handlers)
+      ansible.builtin.meta: flush_handlers
+
+    - name: Criar o usuário de acesso administrativo do PatchMon
+      community.postgresql.postgresql_user:
+        name: patchmon
+        password: "Nov@Senh@"
+        role_attr_flags: SUPERUSER
+      become_user: postgres
+
+    - name: Criar a base de dados patchmondb associada ao usuário
+      community.postgresql.postgresql_db:
+        name: patchmondb
+        owner: patchmon
+      become_user: postgres
+
+  handlers:
+    - name: Restart PostgreSQL
+      ansible.builtin.service:
+        name: postgresql
+        state: restarted
