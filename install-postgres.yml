@@ -1,13 +1,15 @@
 ---
-- name: Instalação e Parametrização Otimizada do PostgreSQL 17
+- name: Instalar e Configurar o PostgreSQL 17 no IP 10.0.39.41
   hosts: db_postgres_novo
   gather_facts: true
   tasks:
-    - name: Instalar dependências iniciais do APT
+    - name: Instalar dependências iniciais do APT (Incluindo CA-Certificates para HTTPS)
       ansible.builtin.apt:
         name:
           - gnupg2
           - wget
+          - ca-certificates
+          - apt-transport-https
         state: present
         update_cache: true
 
@@ -24,12 +26,13 @@
         dest: /etc/apt/keyrings/postgresql.asc
         mode: '0644'
 
-    - name: Adicionar o repositório oficial do PostgreSQL ao sistema
+    - name: Adicionar o repositório oficial do PostgreSQL ao sistema (Forçado HTTPS + Resolute)
       ansible.builtin.apt_repository:
-        repo: "deb [signed-by=/etc/apt/keyrings/postgresql.asc] http://apt.postgresql.org/pub/repos/apt {{ ansible_facts['distribution_release'] }}-pgdg main"
+        repo: "deb [signed-by=/etc/apt/keyrings/postgresql.asc] https://apt.postgresql.org/pub/repos/apt resolute-pgdg main"
         state: present
+        update_cache: true
 
-    - name: Instalar o servidor PostgreSQL 17 e a biblioteca python3-psycopg2
+    - name: Instalar o servidor PostgreSQL 17 e bibliotecas de conexão Python
       ansible.builtin.apt:
         name:
           - postgresql-17
@@ -58,11 +61,10 @@
         state: started
         enabled: true
 
-    # Força a aplicação imediata das configurações de escuta de conexões antes de criar o banco
     - name: Forçar o reinício do banco de dados (flush de handlers)
       ansible.builtin.meta: flush_handlers
 
-    - name: Criar o usuário de acesso administrativo do PatchMon com a senha Nov@Senh@
+    - name: Criar o usuário de acesso administrativo do PatchMon
       community.postgresql.postgresql_user:
         name: patchmon
         password: "Nov@Senh@"
